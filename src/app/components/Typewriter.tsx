@@ -56,6 +56,19 @@ export function Typewriter({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onKeyPress, onBackspace, onReturn]);
 
+  // Keep in sync with `App.tsx` to ensure typed lines never exceed the paper.
+  const PAPER_WIDTH = 450;
+  const PAPER_SIDE_PADDING = 45;
+  const PAPER_TOP_PADDING = 60;
+  const PAPER_BOTTOM_PADDING = 60;
+  const PAPER_CONTENT_WIDTH = PAPER_WIDTH - PAPER_SIDE_PADDING * 2; // 360px
+  const LINE_HEIGHT = 24;
+
+  const BASE_WIDTH = 920;
+  const BASE_HEIGHT = 320;
+  // Where the paper visually "emerges" from the base.
+  const PAPER_ANCHOR_FROM_BOTTOM = BASE_HEIGHT - 80;
+
   // Calculate text lines with colors
   const lines: Array<{ text: string; color: string }[]> = [];
   let currentLine: Array<{ text: string; color: string }> = [];
@@ -87,16 +100,20 @@ export function Typewriter({
   return (
     <div
       ref={containerRef}
-      className="fixed bottom-0 left-1/2 -translate-x-1/2 w-[1000px] h-[600px]"
+      className="fixed inset-x-0 bottom-0 flex justify-center"
       style={{ perspective: "1200px" }}
     >
+      <div
+        className="relative w-[min(1100px,calc(100vw-2rem))]"
+        style={{ height: "680px" }}
+      >
       {/* Paper Layer - Moves both horizontally with carriage and vertically */}
       <motion.div
         className="absolute"
         style={{
           zIndex: 2,
           left: "50%",
-          bottom: "150px",
+          bottom: `${PAPER_ANCHOR_FROM_BOTTOM}px`,
         }}
         animate={{
           x: carriageOffset,
@@ -111,9 +128,9 @@ export function Typewriter({
         <div
           className="bg-[#faf9f6] shadow-2xl relative"
           style={{
-            width: "450px",
-            minHeight: "700px",
-            padding: "60px 45px",
+            width: `${PAPER_WIDTH}px`,
+            minHeight: "720px",
+            padding: `${PAPER_TOP_PADDING}px ${PAPER_SIDE_PADDING}px ${PAPER_BOTTOM_PADDING}px`,
             transform: "translateX(-50%)",
             border: "1px solid #e0e0e0",
           }}
@@ -157,8 +174,11 @@ export function Typewriter({
             className="font-mono text-base relative"
             style={{
               lineHeight: `${LINE_HEIGHT}px`,
-              letterSpacing: "0.05em",
-              maxWidth: "360px",
+              // Avoid extra letter spacing; it causes lines to exceed the sheet width.
+              letterSpacing: "0em",
+              width: `${PAPER_CONTENT_WIDTH}px`,
+              maxWidth: `${PAPER_CONTENT_WIDTH}px`,
+              overflow: "hidden",
             }}
           >
             {lines.map((line, lineIdx) => (
@@ -166,12 +186,8 @@ export function Typewriter({
                 key={lineIdx} 
                 style={{ 
                   height: `${LINE_HEIGHT}px`,
-                  display: 'flex',
-                  alignItems: 'flex-start',
                   minHeight: `${LINE_HEIGHT}px`,
-                  overflow: 'visible',
-                  wordWrap: 'break-word',
-                  whiteSpace: 'pre-wrap',
+                  whiteSpace: "pre",
                 }}
               >
                 {line.length === 0 ? (
@@ -183,8 +199,8 @@ export function Typewriter({
                       key={charIdx} 
                       style={{ 
                         color: char.color,
-                        display: 'inline',
-                        whiteSpace: 'pre',
+                        display: "inline",
+                        whiteSpace: "pre",
                       }}
                     >
                       {char.text}
@@ -208,49 +224,20 @@ export function Typewriter({
         </div>
       </motion.div>
 
-      {/* Carriage Layer - Moves horizontally only */}
-      <motion.div
-        className="absolute"
-        style={{
-          zIndex: 3,
-          left: "50%",
-          bottom: "200px",
-          pointerEvents: "none",
-        }}
-        animate={{
-          x: carriageOffset,
-        }}
-        transition={{
-          type: "spring",
-          stiffness: 300,
-          damping: 30,
-        }}
-      >
-        {/* Carriage roller visual */}
-        <div
-          className="flex flex-col items-center"
-          style={{
-            transform: "translateX(-50%)",
-          }}
-        >
-          <div className="w-1.5 h-20 bg-gradient-to-b from-gray-500 to-gray-700 rounded-full shadow-md" />
-          <div className="w-8 h-2 bg-gray-600 rounded-full mt-1" />
-        </div>
-      </motion.div>
-
       {/* Base Layer - Static typewriter base */}
       <div
         className="absolute bottom-0 left-1/2 -translate-x-1/2"
         style={{
-          zIndex: 1,
-          width: "800px",
-          height: "280px",
+          // Base overlays the bottom of the sheet to make the paper feel "inside".
+          zIndex: 4,
+          width: `${BASE_WIDTH}px`,
+          height: `${BASE_HEIGHT}px`,
         }}
       >
         {/* Hand-drawn typewriter base */}
         <svg
-          width="800"
-          height="280"
+          width={BASE_WIDTH}
+          height={BASE_HEIGHT}
           viewBox="0 0 800 280"
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
@@ -312,9 +299,10 @@ export function Typewriter({
         </svg>
         
         {/* Instructions text on typewriter base */}
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 text-center text-sm text-gray-300 font-mono">
+        <div className="absolute top-[128px] left-1/2 -translate-x-1/2 text-center text-sm text-gray-300 font-mono">
           <p>Type on your keyboard to create notes for the creator</p>
         </div>
+      </div>
       </div>
     </div>
   );

@@ -6,7 +6,9 @@ import { projectId, publicAnonKey } from "/utils/supabase/info";
 
 const CHAR_WIDTH = 12;
 const LINE_HEIGHT = 24;
-const CHARS_PER_LINE = 52;
+// Keep this in sync with the paper's usable text width.
+// Paper padding is 45px on each side of a 450px sheet => ~360px usable.
+const CHARS_PER_LINE = 30; // 360px / 12px per char
 const INITIAL_CARRIAGE_OFFSET = 100; // Start slightly to the right
 const API_URL = `https://${projectId}.supabase.co/functions/v1/make-server-798a08af`;
 
@@ -23,7 +25,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const soundEngineRef = useRef<SoundEngine | null>(null);
   const isScrollingRef = useRef(false);
-  const scrollTimeoutRef = useRef<NodeJS.Timeout>();
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Initialize sound engine
   useEffect(() => {
