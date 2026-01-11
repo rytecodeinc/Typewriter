@@ -1,0 +1,247 @@
+import SwiftUI
+import CoreLocation
+import MapKit
+
+struct FormPreferencesLocation: View {
+    @Binding var lat                 : Double?
+    @Binding var lng                 : Double?
+    @Binding var locationDescription : String?
+    
+    @State private var locationHandler : LocationHandler?
+    @State private var isUpdating = false
+    
+    // Manual input states
+    @State private var manualLocationText = ""
+    @State private var isGeocoding = false
+    @State private var geocodeError: String?
+    
+    // Autocomplete states
+    @State private var searchResults: [MKLocalSearchCompletion] = []
+    @StateObject private var completerDelegate = CompleterDelegate()
+    
+    @State private var searchCompleter = MKLocalSearchCompleter()
+    @State private var hasSelectedLocation = false
+    @State private var hasInitialized = false
+    
+    init(lat: Binding<Double?>, lng: Binding<Double?>, locationDescription: Binding<String?>) {
+        self._lat = lat
+        self._lng = lng
+        self._locationDescription = locationDescription
+    }
+    
+    var body: some View {
+        if let locationHandler {
+            Section(
+                footer: Group {
+                    if case .permissionDenied = locationHandler.resp {
+                        Text(Image(systemName: "gear")) + Text(" Settings ")
+                        + Text(Image(systemName: "chevron.right")) + Text(" ") + Text(Image(systemName: "square.grid.3x3")) + Text(" Apps ")
+                        + Text(Image(systemName: "chevron.right")) + Text(" Know ")
+                        + Text(Image(systemName: "chevron.right")) + Text(" ") + Text(Image(systemName: "location")) + Text(" Location")
+                    } else {
+                        Text("Your location does not follow you set it at home or wherever you currently are")
+                    }
+                }
+            ) {
+                if case .permissionDenied = locationHandler.resp {
+                    HStack {
+                        // Text input
+                        TextField("City, State (e.g. Los Angeles, CA)", text: $manualLocationText)
+                            .textInputAutocapitalization(.words)
+                            .disableAutocorrection(true)
+                            .onChange(of: manualLocationText) { oldValue, newValue in
+                                if hasSelectedLocation {
+                                    // If user somehow edits, reset the selection
+                                    hasSelectedLocation = false
+                                    lat = nil
+                                    lng = nil
+                                    locationDescription = nil
+                                }
+                                searchCompleter.queryFragment = newValue
+                            }
+                        
+                        // Clear button (X)
+                        if hasSelectedLocation && !manualLocationText.isEmpty {
+                            Button(action: {
+                                // Reset state
+                                hasSelectedLocation = false
+                                lat = nil
+                                lng = nil
+                                locationDescription = nil
+                                geocodeError = nil
+                                searchResults.removeAll()
+                                
+                                // Reset the search completer
+                                searchCompleter.queryFragment = ""
+                                
+                                // Clear text
+                                manualLocationText = ""
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        
+                        // Loading indicator
+                        if isGeocoding {
+                            ProgressView()
+                                .padding(.leading, 4)
+                        }
+                    }
+                    
+                    // Autocomplete suggestions (only show when not selected)
+                    if !searchResults.isEmpty && !hasSelectedLocation {
+                        ForEach(searchResults, id: \.self) { result in
+                            Button(action: {
+                                selectSearchCompletion(result)
+                            }) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(result.title)
+                                        .font(.body)
+                                        .foregroundColor(.primary)
+                                    if !result.subtitle.isEmpty {
+                                        Text(result.subtitle)
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    
+                    // Error message
+                    if let geocodeError {
+                        Text(geocodeError)
+                            .font(.footnote)
+                            .foregroundColor(.red)
+                    }
+                } else {
+                    // Location via permission
+                    Button(action: {
+                        isUpdating = true
+                        locationHandler.getLocationWithPermission()
+                    }) {
+                        HStack {
+                            if let lat, let lng {
+                                Label(locationDescription ?? "\(String(format: "%.2f", lat)), \(String(format: "%.2f", lng))", systemImage: "location")
+                                    .foregroundStyle(.primary)
+                            } else {
+                                Label("Set Location", systemImage: "location")
+                                    .foregroundStyle(Color.secondaryRed)
+                            }
+                            Spacer()
+                            if isUpdating {
+                                ProgressView()
+                                    .tint(.secondary)
+                            }
+                        }
+                    }
+                    .onChange(of: locationHandler.resp) {
+                        if case .location(let location, let description) = locationHandler.resp, isUpdating {
+                            self.isUpdating = false
+                            self.lat = location.coordinate.latitude
+                            self.lng = location.coordinate.longitude
+                            self.locationDescription = description
+                        }
+                    }
+                }
+            }
+            .onAppear {
+                // Set up the completer delegate once
+                searchCompleter.delegate = completerDelegate
+                searchCompleter.resultTypes = .address
+                
+                // Bind the results
+                completerDelegate.onResultsUpdate = { results in
+                    searchResults = results
+                }
+                
+                // Load existing location data if available
+                if !hasInitialized {
+                    loadExistingLocation()
+                    hasInitialized = true
+                }
+            }
+        } else {
+            ProgressView().onAppear {
+                locationHandler = LocationHandler()
+            }
+        }
+    }
+    
+    // MARK: - Load Existing Location
+        private func loadExistingLocation() {
+            // If we have saved coordinates and description, restore them
+            if lat != nil, lng != nil, let description = locationDescription {
+                manualLocationText = description
+                hasSelectedLocation = true
+            }
+        }
+    
+    // MARK: - Autocomplete Helpers
+    private func selectSearchCompletion(_ completion: MKLocalSearchCompletion) {
+        // Display the selected text in the field
+        let fullText = completion.title + (completion.subtitle.isEmpty ? "" : ", \(completion.subtitle)")
+        manualLocationText = fullText
+        searchResults.removeAll()
+        
+        // Use MKLocalSearch to resolve the completion to coordinates
+        let searchRequest = MKLocalSearch.Request(completion: completion)
+        let search = MKLocalSearch(request: searchRequest)
+        
+        isGeocoding = true
+        geocodeError = nil
+        
+        search.start { response, error in
+            DispatchQueue.main.async {
+                isGeocoding = false
+                
+                if let error {
+                    geocodeError = error.localizedDescription
+                    hasSelectedLocation = false  // Allow retry on error
+                    return
+                }
+                
+                guard let mapItem = response?.mapItems.first else {
+                    geocodeError = "Could not find location details."
+                    hasSelectedLocation = false  // Allow retry on error
+                    return
+                }
+                
+                let coordinate = mapItem.placemark.coordinate
+                let locality = mapItem.placemark.locality ?? ""
+                let administrativeArea = mapItem.placemark.administrativeArea ?? ""
+                
+                // Update bindings
+                lat = coordinate.latitude
+                lng = coordinate.longitude
+                
+                if !locality.isEmpty && !administrativeArea.isEmpty {
+                    locationDescription = "\(locality), \(administrativeArea)"
+                } else {
+                    locationDescription = fullText
+                }
+                
+                hasSelectedLocation = true  // Mark as selected
+            }
+        }
+    }
+}
+
+// Updated delegate that can call back to update results
+final class CompleterDelegate: NSObject, ObservableObject, MKLocalSearchCompleterDelegate {
+    var onResultsUpdate: (([MKLocalSearchCompletion]) -> Void)?
+    
+    func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
+        onResultsUpdate?(completer.results)
+    }
+
+    func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
+        print("Autocomplete failed with error: \(error)")
+        onResultsUpdate?([])
+    }
+}
